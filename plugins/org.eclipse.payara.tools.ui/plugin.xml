@@ -10,10 +10,12 @@
      -->
     <extension point="org.eclipse.wst.server.ui.wizardFragments">
        <fragment
+             id="fish.payara.NewPayaraRuntimeWizardFragment"
              class="org.eclipse.payara.tools.ui.wizards.NewPayaraRuntimeWizardFragment"
              typeIds="payara.runtime">
        </fragment>
        <fragment
+             id="fish.payara.NewPayaraServerWizardFragment"
              class="org.eclipse.payara.tools.ui.wizards.NewPayaraServerWizardFragment"
              typeIds="payara.server">
        </fragment>
@@ -97,6 +99,7 @@
     -->
     <extension point="org.eclipse.wst.server.ui.editorPageSections">
        <section
+       		 id="org.eclipse.payara.tools.ServerSection"
              class="org.eclipse.payara.tools.ui.editorsections.ServerSection"
              typeIds="payara.server"
              insertionId="org.eclipse.wst.server.editor.overview.left"
@@ -109,6 +112,8 @@
         Menu entries that are being shown for the Payara / GlassFish server when e.g. the server is right clicked
         in the Servers view and "Payara" is chosen from the context menu  
     -->
+    
+    <!-- 1. Definitions of commands for the menu entries -->
     
     <extension point="org.eclipse.ui.commands">
         <category
@@ -144,13 +149,68 @@
               name="OpenDomainHomeCommand">
         </command>
      </extension>
+     
+     <!-- 2. Handlers corresponding to the commands defined above  -->
+ 
+	 <extension point="org.eclipse.ui.handlers">
+		<handler
+		      class="org.eclipse.payara.tools.handlers.ViewLogHandler"
+	          commandId="org.eclipse.payara.tools.commands.ViewLogCommand">
+	        <enabledWhen>
+				<or>
+					<not>
+						<reference definitionId="org.eclipse.payara.tools.isRemoteGlassfish"/>
+					</not>
+					<reference definitionId="org.eclipse.payara.tools.oneRunningGlassfishSelected"/>
+				</or>
+			</enabledWhen>
+		</handler>
+     
+		<handler 
+             commandId="org.eclipse.payara.tools.commands.ViewAdminConsoleCommand"
+		     class="org.eclipse.payara.tools.handlers.ViewAdminConsoleHandler"
+		      >
+			  <enabledWhen>
+		   		<reference definitionId="org.eclipse.payara.tools.oneRunningGlassfishSelected"/>
+			  </enabledWhen>
+		 </handler>
+		   
+		<handler
+		   commandId="org.eclipse.payara.tools.commands.OpenUrlCommand"
+           class="org.eclipse.payara.tools.handlers.ShowURLHandler">
+        </handler>
+		   
+		<handler
+            commandId="org.eclipse.payara.tools.commands.OpenServerHomeCommand"
+		    class="org.eclipse.payara.tools.handlers.OpenServerHomeHandler"
+		   >
+			 <enabledWhen>
+			 	<reference definitionId="org.eclipse.payara.tools.oneGlassfishSelected"/>
+			 </enabledWhen>  
+		 </handler>
+		 
+		 <handler 
+		     commandId="org.eclipse.payara.tools.commands.OpenDomainHomeCommand"
+		     class="org.eclipse.payara.tools.handlers.OpenDomainHomeHandler"
+		   >
+			<enabledWhen>
+        			<and>
+	 				<not>    
+	           			<reference definitionId="org.eclipse.payara.tools.isRemoteGlassfish"/>
+           			</not>
+           			<reference definitionId="org.eclipse.payara.tools.oneGlassfishSelected"/>
+           		</and>
+        		</enabledWhen>
+     	</handler>
+    </extension>
+
+    <!-- 3. Definitions of the menu entries putting the above defined commands in -->
     
-    
-     <extension point="org.eclipse.ui.menus">
+    <extension point="org.eclipse.ui.menus">
         <menuContribution
            allPopups="false"
            locationURI="popup:org.eclipse.wst.server.ui.ServersView?after=additions">
-        <menu
+            <menu
               id="org.eclipse.payara.tools.actions.subMenu"
               icon="icons/obj16/payara-blue.png"
               label="%menu.payaratopmenu">
@@ -185,60 +245,10 @@
                  style="push">
            </command>
         </menu>
-     </menuContribution>
+        </menuContribution>
     </extension>
  
-
-	<!-- Handlers corresponding to the commands defined above  -->
- 
-	<extension point="org.eclipse.ui.handlers">
-     
-		<handler
-		      class="org.eclipse.payara.tools.handlers.ViewLogHandler"
-	          commandId="org.eclipse.payara.tools.commands.ViewLogCommand">
-	        <enabledWhen>
-				<or>
-					<not>
-						<reference definitionId="org.eclipse.payara.tools.isRemoteGlassfish"/>
-					</not>
-					<reference definitionId="org.eclipse.payara.tools.oneRunningGlassfishSelected"/>
-				</or>
-			</enabledWhen>
-		</handler>
-     
-		 <handler 
-		      class="org.eclipse.payara.tools.handlers.ViewAdminConsoleHandler"
-		      commandId="org.eclipse.payara.tools.commands.ViewAdminConsoleCommand">
-			  <enabledWhen>
-		   		<reference definitionId="org.eclipse.payara.tools.oneRunningGlassfishSelected"/>
-			  </enabledWhen>
-		 </handler>
-		   
-		<handler
-           class="org.eclipse.payara.tools.handlers.ShowURLHandler"
-           commandId="org.eclipse.payara.tools.commands.OpenUrlCommand">
-        </handler>
-		   
-		<handler
-		   class="org.eclipse.payara.tools.handlers.OpenServerHomeHandler"
-		   commandId="org.eclipse.payara.tools.commands.OpenServerHomeCommand">
-			 <enabledWhen>
-			 	<reference definitionId="org.eclipse.payara.tools.oneGlassfishSelected"/>
-			 </enabledWhen>  
-		 </handler>
-		 
-		 <handler class="org.eclipse.payara.tools.handlers.OpenDomainHomeHandler"
-		   commandId="org.eclipse.payara.tools.commands.OpenDomainHomeCommand">
-			<enabledWhen>
-        			<and>
-	 				<not>    
-	           			<reference definitionId="org.eclipse.payara.tools.isRemoteGlassfish"/>
-           			</not>
-           			<reference definitionId="org.eclipse.payara.tools.oneGlassfishSelected"/>
-           		</and>
-        		</enabledWhen>
-     	</handler>
-    </extension>
+	
   
   
     <!-- 
@@ -260,22 +270,40 @@
     </extension>
     
     
-   <!--
+    <extension point="org.eclipse.jdt.ui.classpathContainerPage">
+        <classpathContainerPage
+            id="org.eclipse.payara.tools.lib.system"
+            name="Payara properties"
+            class="org.eclipse.payara.tools.ui.properties.ClasspathContainerPage">
+        </classpathContainerPage>
+    </extension>
+    
+    
+    <!--
         This provides the dynamic nodes; the tree nodes that are inserted underneath 
         a running Payara / GlassFish server node in the Servers view. 
     -->
     <extension point="org.eclipse.ui.navigator.viewer">
        <viewerContentBinding viewerId="org.eclipse.wst.server.ui.ServersView">
-          <includes><contentExtension pattern="payara.serverview.contentprovider"/></includes>
+          <includes>
+          	<contentExtension pattern="payara.serverview.contentprovider"/>
+          </includes>
        </viewerContentBinding>
+       
+       <viewerActionBinding viewerId="org.eclipse.wst.server.ui.ServersView">
+			<includes>
+				<actionExtension pattern="org.eclipse.payara.tools.ui.serverview.ServerModuleActionProvider" />
+			</includes>
+		</viewerActionBinding>
     </extension>
+    
     <extension point="org.eclipse.ui.navigator.navigatorContent">
        <navigatorContent
              id="payara.serverview.contentprovider"
              contentProvider="org.eclipse.payara.tools.ui.serverview.ServerViewDynamicNodeProvider"
+             labelProvider="org.eclipse.payara.tools.ui.serverview.ServerViewLabelProvider"
              name="Payara Management Nodes"
              icon="icons/obj16/payara-blue.png"
-             labelProvider="org.eclipse.payara.tools.ui.serverview.ServerViewLabelProvider"
              activeByDefault="true"
              priority="highest">
           <triggerPoints>
@@ -284,7 +312,8 @@
           <possibleChildren>
                 <instanceof value="org.eclipse.payara.tools.ui.serverview.dynamicnodes.TreeNode"/>
           </possibleChildren>
-          <!-- This adds the "unregister" action when you right click on a resource such as a JDBC data source -->
+          
+          <!-- This adds for example the "unregister" action when you right click on a resource such as a JDBC data source -->
           <actionProvider
                 id="org.eclipse.payara.tools.ui.serverview.ServerViewActionProvider"
                 class="org.eclipse.payara.tools.ui.serverview.ServerViewActionProvider"
@@ -298,6 +327,22 @@
              </enablement>
           </actionProvider>
        </navigatorContent>
+       
+       <actionProvider
+       		id="org.eclipse.payara.tools.ui.serverview.ServerModuleActionProvider"
+			class="org.eclipse.payara.tools.ui.serverview.ServerModuleActionProvider"
+			dependsOn="org.eclipse.wst.server.ui.ServersView.ServerActionProvider"
+			priority="higher">
+			<enablement>
+			    <or>
+					<instanceof value="org.eclipse.wst.server.core.IServer">
+					</instanceof>
+					<instanceof
+						value="org.eclipse.wst.server.ui.internal.view.servers.ModuleServer">
+					</instanceof>
+				</or>
+			</enablement>
+		</actionProvider>
        
        <commonWizard
              menuGroupId="org.eclipse.payara.tools.v3.wizards"
@@ -344,8 +389,7 @@
         </perspectiveExtension>
     </extension>
   
-      <extension
-          point="org.eclipse.ui.newWizards">
+    <extension point="org.eclipse.ui.newWizards">
        <category
              id="org.eclipse.payara.tools"
              name="%sunappserver.wizardcategory">
@@ -402,13 +446,11 @@
     </extension>
  
   
-   <extension point="org.eclipse.jst.common.project.facet.ui.libraryProviderActionPanels">
+    <extension point="org.eclipse.jst.common.project.facet.ui.libraryProviderActionPanels">
        <panel
              class="org.eclipse.payara.tools.ui.internal.JAXRSActionPanels"
              provider="org.eclipse.payara.tools.jaxrsLibraryproviderID">
        </panel>
     </extension>
-  
-   
 
 </plugin>

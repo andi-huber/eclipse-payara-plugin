@@ -8,7 +8,7 @@
  ******************************************************************************/
 
 /******************************************************************************
- * Copyright (c) 2018 Payara Foundation
+ * Copyright (c) 2018-2019 Payara Foundation
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v2.0
  * which accompanies this distribution, and is available at
@@ -40,17 +40,8 @@ import static org.eclipse.payara.tools.PayaraToolsPlugin.createErrorStatus;
 import static org.eclipse.payara.tools.PayaraToolsPlugin.logError;
 import static org.eclipse.payara.tools.PayaraToolsPlugin.logMessage;
 import static org.eclipse.payara.tools.facets.internal.GlassfishDeploymentDescriptorFactory.getWebDeploymentDescriptor;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_ADMIN_NAME;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_ADMIN_PASSWORD;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_ADMIN_PORT;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_DEBUG_PORT;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_DOMAIN_PATH;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_HOST_NAME;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_NAME;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_PRESERVE_SESSIONS;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_SERVER_PORT;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_USE_ANONYMOUS_CONNECTIONS;
-import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_USE_JAR_DEPLOYMENT;
+import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_ATTACH_DEBUGGER_DEFAULT;
+import static org.eclipse.payara.tools.sapphire.IPayaraServerModel.PROP_ATTACH_DEBUGGER_EARLY;
 import static org.eclipse.payara.tools.sdk.server.parser.TreeParser.readXml;
 import static org.eclipse.payara.tools.utils.ModuleUtil.isEARModule;
 import static org.eclipse.payara.tools.utils.ModuleUtil.isEJBModule;
@@ -60,6 +51,7 @@ import static org.eclipse.payara.tools.utils.Utils.canWrite;
 import static org.eclipse.payara.tools.utils.Utils.getAppWebContextRoot;
 import static org.eclipse.payara.tools.utils.Utils.getHttpListenerProtocol;
 import static org.eclipse.payara.tools.utils.Utils.hasProjectFacet;
+import static org.eclipse.payara.tools.utils.WtpUtil.load;
 import static org.eclipse.wst.common.componentcore.internal.util.IModuleConstants.JST_WEB_MODULE;
 import static org.eclipse.wst.common.project.facet.core.ProjectFacetsManager.getProjectFacet;
 import static org.eclipse.wst.server.core.ServerUtil.getModules;
@@ -89,6 +81,7 @@ import org.eclipse.jst.server.core.IEnterpriseApplication;
 import org.eclipse.jst.server.core.IWebModule;
 import org.eclipse.payara.tools.Messages;
 import org.eclipse.payara.tools.sapphire.IPayaraServerModel;
+import org.eclipse.payara.tools.sapphire.PayaraServerModelWorkingCopyAdapter;
 import org.eclipse.payara.tools.sdk.data.GlassFishAdminInterface;
 import org.eclipse.payara.tools.sdk.server.parser.HttpData;
 import org.eclipse.payara.tools.sdk.server.parser.HttpListenerReader;
@@ -96,11 +89,6 @@ import org.eclipse.payara.tools.sdk.server.parser.NetworkListenerReader;
 import org.eclipse.payara.tools.sdk.server.parser.TargetConfigNameReader;
 import org.eclipse.payara.tools.server.deploying.PayaraServerBehaviour;
 import org.eclipse.payara.tools.utils.PayaraLocationUtils;
-import org.eclipse.sapphire.Property;
-import org.eclipse.sapphire.PropertyBinding;
-import org.eclipse.sapphire.PropertyDef;
-import org.eclipse.sapphire.Resource;
-import org.eclipse.sapphire.ValuePropertyBinding;
 import org.eclipse.sapphire.Version;
 import org.eclipse.sapphire.modeling.Path;
 import org.eclipse.wst.common.project.facet.core.IFacetedProject;
@@ -144,9 +132,6 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     private static final String DEFAULT_DOMAIN_DIR_NAME = "domains"; // $NON-NLS-N$
     private static final String DEFAULT_DOMAIN_NAME = "domain1"; // $NON-NLS-N$
     public static final int DEFAULT_DEBUG_PORT = 9009;
-
-    public static final String ATTR_SERVER_ADDRESS = "server.address"; //$NON-NLS-1$
-
     public static final String ATTR_SERVERPORT = "glassfish.serverportnumber"; //$NON-NLS-1$
     public static final String ATTR_ADMINPORT = "glassfish.adminserverportnumber"; //$NON-NLS-1$
     public static final String ATTR_DEBUG_PORT = "glassfish.debugport";
@@ -157,14 +142,6 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     public static final String ATTR_KEEPSESSIONS = "glassfish.keepSessions"; //$NON-NLS-1$
     public static final String ATTR_JARDEPLOY = "glassfish.jarDeploy"; //$NON-NLS-1$
     public static final String ATTR_USEANONYMOUSCONNECTIONS = "glassfish.useAnonymousConnection"; //$NON-NLS-1$
-
-    public static final String SAMPLEDBDIR = "glassfish.sampledbdir"; //$NON-NLS-1$
-
-    // used only for v2, populated from project properties or module name with
-    // no space
-    public static final String CONTEXTROOT = "glassfish.contextroot"; //$NON-NLS-1$
-
-    public static final String DOMAINUPDATE = "domainupdate"; //$NON-NLS-1$
 
     private List<PropertyChangeListener> propChangeListeners;
 
@@ -180,7 +157,7 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
             readDomainConfig();
         }
 
-        model = IPayaraServerModel.TYPE.instantiate(new ConfigResource(getServerWorkingCopy()));
+        model = IPayaraServerModel.TYPE.instantiate(new PayaraServerModelWorkingCopyAdapter(getServerWorkingCopy()));
     }
 
     /**
@@ -216,7 +193,7 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
         try {
             return new URL(protocol, hostname, serverPort, path);
         } catch (MalformedURLException e) {
-            // shouldn't happen
+            // Shouldn't happen
             e.printStackTrace();
         }
         
@@ -229,8 +206,7 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
         PayaraServerBehaviour serverBehavior = getServer().getAdapter(PayaraServerBehaviour.class);
 
         if (serverBehavior == null) {
-            serverBehavior = (PayaraServerBehaviour) getServer().loadAdapter(PayaraServerBehaviour.class,
-                    new NullProgressMonitor());
+            serverBehavior = load(getServer(), PayaraServerBehaviour.class);
         }
 
         return serverBehavior;
@@ -284,15 +260,14 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
 
                 syncHostAndPortsValues();
 
-                // this is mainly so serversection can listen and repopulate,
+                // This is mainly so serversection can listen and repopulate,
                 // but it is not working as intended because the sunserver
-                // instance to
-                // which the prop change listener is attached is a different one
-                // than is
-                // seeing the changes. in fact, we have multiple instances of
-                // this
-                // object and the glassfishBehaviour object per server -
-                // issue 140
+                // instance to which the prop change listener is attached is a different one
+                // than is seeing the changes.
+                //
+                // In fact, we have multiple instances of this object and the glassfishBehaviour 
+                // object per server - see issue 140
+                
                 // firePropertyChangeEvent(DOMAINUPDATE, null, null);
             } else {
                 logMessage("In Payara could not readServerConfiguration - probably invalid domain"); //$NON-NLS-1$
@@ -301,7 +276,6 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     }
 
     public String validateDomainExists(String domainPath) {
-
         if (isRemote()) {
             return null;
         }
@@ -337,6 +311,7 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
 
             return null;
         }
+        
         return Messages.missingDomainLocation;
     }
 
@@ -540,9 +515,9 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     }
 
     /*
-     * ************************************************************* Implementation of adapter methods
-     * used by tooling SDK library.
+     * *************Implementation of adapter methods used by tooling SDK library.
      */
+    
     public int getAdminPort() {
         return getAttribute(ATTR_ADMINPORT, -1);
     }
@@ -561,6 +536,10 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
 
     public String getDomainName() {
         return getDomainPath() != null ? new File(getDomainPath()).getName() : null;
+    }
+    
+    public String getDomainPath() {
+        return getAttribute(ATTR_DOMAINPATH, "");
     }
 
     public String getHost() {
@@ -610,6 +589,10 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     public boolean getKeepSessions() {
         return getAttribute(ATTR_KEEPSESSIONS, true);
     }
+    
+    public boolean getAttachDebuggerEarly() {
+        return getAttribute(PROP_ATTACH_DEBUGGER_EARLY.name(), PROP_ATTACH_DEBUGGER_DEFAULT);
+    }
 
     public String getAdminPassword() {
         return getAttribute(ATTR_ADMINPASS, "");
@@ -641,11 +624,6 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
     public void setPort(int port) {
         setAttribute(ATTR_SERVERPORT, port);
     }
-
-    public String getDomainPath() {
-        return getAttribute(ATTR_DOMAINPATH, "");
-    }
-
     public boolean useAnonymousConnections() {
         return getAttribute(ATTR_USEANONYMOUSCONNECTIONS, true);
     }
@@ -658,139 +636,6 @@ public final class PayaraServer extends ServerDelegate implements IURLProvider {
         }
 
         return baseLocation.append(DEFAULT_SERVER_DIR_NAME).toString();
-    }
-
-    // ************* CONFIG RESOURCE FOR BINDING FROM SAPPHIRE GUI
-    // *********************
-
-    private final class ConfigResource extends Resource {
-
-        private final IServerWorkingCopy workingCopy;
-
-        public ConfigResource(final IServerWorkingCopy wc) {
-            super(null);
-            this.workingCopy = wc;
-        }
-
-        @Override
-        protected PropertyBinding createBinding(final Property property) {
-            final PropertyDef propertyDef = property.definition();
-
-            if (propertyDef == PROP_NAME) {
-                return new ValuePropertyBinding() {
-                    @Override
-                    public String read() {
-                        return ConfigResource.this.workingCopy.getName();
-                    }
-
-                    @Override
-                    public void write(final String value) {
-                        ConfigResource.this.workingCopy.setName(value);
-                    }
-                };
-            } else if (propertyDef == PROP_HOST_NAME) {
-                return new ValuePropertyBinding() {
-                    private PropertyChangeListener listener;
-
-                    @Override
-                    public void init(final Property property) {
-                        super.init(property);
-
-                        listener = e -> {
-                            if ("hostname".equals(e.getPropertyName())) {
-                                property().refresh();
-                            }
-                        };
-
-                        ConfigResource.this.workingCopy.addPropertyChangeListener(this.listener);
-                    }
-
-                    @Override
-                    public String read() {
-                        return ConfigResource.this.workingCopy.getHost();
-                    }
-
-                    @Override
-                    public void write(final String value) {
-                        ConfigResource.this.workingCopy.setHost(value);
-                    }
-
-                    @Override
-                    public void dispose() {
-                        super.dispose();
-
-                        ConfigResource.this.workingCopy.removePropertyChangeListener(this.listener);
-                        this.listener = null;
-                    }
-                };
-            } else if (propertyDef == PROP_ADMIN_NAME) {
-                return new AttributeValueBinding(workingCopy, ATTR_ADMIN);
-            }
-            
-            if (propertyDef == PROP_ADMIN_PASSWORD) {
-                return new AttributeValueBinding(workingCopy, ATTR_ADMINPASS);
-            }
-            
-            if (propertyDef == PROP_ADMIN_PORT) {
-                return new AttributeValueBinding(workingCopy, ATTR_ADMINPORT);
-            }
-            
-            if (propertyDef == PROP_DEBUG_PORT) {
-                return new AttributeValueBinding(workingCopy, ATTR_DEBUG_PORT);
-            }
-            
-            if (propertyDef == PROP_SERVER_PORT) {
-                return new AttributeValueBinding(workingCopy, ATTR_SERVERPORT);
-            }
-            
-            if (propertyDef == PROP_DOMAIN_PATH) {
-                return new AttributeValueBinding(workingCopy, ATTR_DOMAINPATH);
-            }
-            
-            if (propertyDef == PROP_PRESERVE_SESSIONS) {
-                return new AttributeValueBinding(workingCopy, ATTR_KEEPSESSIONS);
-            }
-            
-            if (propertyDef == PROP_USE_ANONYMOUS_CONNECTIONS) {
-                return new AttributeValueBinding(workingCopy, ATTR_USEANONYMOUSCONNECTIONS);
-            }
-            
-            if (propertyDef == PROP_USE_JAR_DEPLOYMENT) {
-                return new AttributeValueBinding(workingCopy, ATTR_JARDEPLOY);
-            }
-
-            throw new IllegalStateException();
-        }
-
-        @Override
-        @SuppressWarnings("unchecked")
-        public <A> A adapt(final Class<A> adapterType) {
-            if (adapterType == IServerWorkingCopy.class) {
-                return (A) this.workingCopy;
-            }
-
-            return super.adapt(adapterType);
-        }
-    };
-
-    private static class AttributeValueBinding extends ValuePropertyBinding {
-        private final IServerWorkingCopy workingCopy;
-        private final String attribute;
-
-        public AttributeValueBinding(IServerWorkingCopy wc, String attribute) {
-            this.workingCopy = wc;
-            this.attribute = attribute;
-        }
-
-        @Override
-        public String read() {
-            return this.workingCopy.getAttribute(this.attribute, (String) null);
-        }
-
-        @Override
-        public void write(String value) {
-            this.workingCopy.setAttribute(this.attribute, value);
-        }
     }
 
     @Override

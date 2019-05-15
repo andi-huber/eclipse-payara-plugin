@@ -8,7 +8,7 @@
  ******************************************************************************/
 
 /******************************************************************************
- * Copyright (c) 2018 Payara Foundation
+ * Copyright (c) 2018-2019 Payara Foundation
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v2.0
  * which accompanies this distribution, and is available at
@@ -20,8 +20,12 @@ package org.eclipse.payara.tools.sdk.server;
 
 import static java.io.File.separator;
 import static java.util.Arrays.asList;
+import static java.util.stream.Collectors.toList;
+import static org.eclipse.payara.tools.sdk.server.JDK.isCorrectJDK;
 import static org.eclipse.payara.tools.sdk.server.ServerTasks.StartMode.DEBUG;
 import static org.eclipse.payara.tools.sdk.server.parser.TreeParser.readXml;
+import static org.eclipse.payara.tools.sdk.utils.JavaUtils.javaVmExecutableFullPath;
+import static org.eclipse.payara.tools.sdk.utils.JavaUtils.javaVmVersion;
 import static org.eclipse.payara.tools.sdk.utils.ServerUtils.GFV3_JAR_MATCHER;
 import static org.eclipse.payara.tools.sdk.utils.ServerUtils.GF_DERBY_ROOT_PROPERTY;
 import static org.eclipse.payara.tools.sdk.utils.ServerUtils.GF_DOMAIN_ROOT_PROPERTY;
@@ -40,15 +44,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import org.eclipse.payara.tools.sdk.GlassFishIdeException;
+import org.eclipse.payara.tools.sdk.PayaraIdeException;
 import org.eclipse.payara.tools.sdk.admin.CommandStartDAS;
 import org.eclipse.payara.tools.sdk.admin.ResultProcess;
 import org.eclipse.payara.tools.sdk.admin.ServerAdmin;
 import org.eclipse.payara.tools.sdk.data.StartupArgs;
 import org.eclipse.payara.tools.sdk.logging.Logger;
 import org.eclipse.payara.tools.sdk.server.parser.JvmConfigReader;
+import org.eclipse.payara.tools.sdk.server.parser.JvmConfigReader.JvmOption;
 import org.eclipse.payara.tools.sdk.utils.JavaUtils;
+import org.eclipse.payara.tools.sdk.utils.JavaUtils.JavaVersion;
 import org.eclipse.payara.tools.sdk.utils.OsUtils;
 import org.eclipse.payara.tools.sdk.utils.Utils;
 import org.eclipse.payara.tools.server.PayaraServer;
@@ -82,23 +90,40 @@ public class ServerTasks {
 
     /** Default name of the DAS server. */
     private static final String DAS_NAME = "server";
+    
+    private static Pattern debugPortPattern = Pattern.compile("-\\S+jdwp[:=]\\S*address=([0-9]+)");
+    private static Pattern debugSuspendPattern = Pattern.compile("-\\S+jdwp[:=]\\S*suspend=([n]+)");
 
     /**
-     * Starts local GF server.
+     * Convenient method to start Payara in START mode.
+     * <p/>
+     *
+     * @param server Payara server entity.
+     * @param args Startup arguments provided by caller.
+     * @return ResultProcess returned by CommandStartDAS to give caller opportunity to monitor the start
+     * process.
+     * @throws PayaraIdeException
+     */
+    public static ResultProcess startServer(PayaraServer server, StartupArgs args) throws PayaraIdeException {
+        return startServer(server, args, StartMode.START, false);
+    }
+    
+    /**
+     * Starts local Payara server.
      * <p/>
      * The own start is done by calling CommandStartDAS. This method prepares command-line arguments
      * that need to be provided for the command. The parameters come from domain.xml and from parameter
-     * <code>args</code> provided by caller.
+     * <code>args</code> provided by the caller.
      * <p/>
      *
-     * @param server GlassFish server entity.
+     * @param server Payara server entity.
      * @param args Startup arguments provided by caller.
      * @param mode Mode which we are starting GF in.
      * @return ResultProcess returned by CommandStartDAS to give caller opportunity to monitor the start
      * process.
-     * @throws GlassFishIdeException
+     * @throws PayaraIdeException
      */
-    public static ResultProcess startServer(PayaraServer server, StartupArgs args, StartMode mode) throws GlassFishIdeException {
+    public static ResultProcess startServer(PayaraServer server, StartupArgs args, StartMode mode, boolean suspendOnStart) throws PayaraIdeException {
         String METHOD = "startServer";
 
         // Reading jvm config section from domain.xml
@@ -106,21 +131,40 @@ public class ServerTasks {
         String domainAbsolutePath = server.getDomainsFolder() + separator + server.getDomainName();
         String domainXmlPath = domainAbsolutePath + separator + "config" + separator + "domain.xml";
         if (!readXml(new File(domainXmlPath), jvmConfigReader)) {
-            throw new GlassFishIdeException(LOGGER.excMsg(METHOD, "readXMLerror"), domainXmlPath);
+            throw new PayaraIdeException(LOGGER.excMsg(METHOD, "readXMLerror"), domainXmlPath);
         }
-
-        List<String> optList = jvmConfigReader.getOptList();
+        
+        String[] versions = JavaUtils.getJavaVersionString(args.getJavaHome()).split(":");
+        
+        JDK.Version targetJDKVersion;
+        
+        if (versions.length == 1) {
+        	// Simple way, just using version string
+        	targetJDKVersion = JDK.getVersion(versions[0]);
+        } else {
+        	// More eleborate way using both version string and spec version
+        	targetJDKVersion = JDK.getVersion(versions[0], versions[1]);
+        }
+        
+        // Filter out all options that are not applicable 
+        List<String> optList
+	        = jvmConfigReader.getJvmOptions()
+	                .stream()
+	                .filter(fullOption -> isCorrectJDK(targetJDKVersion, fullOption.minVersion, fullOption.maxVersion))
+	                .map(fullOption -> fullOption.option)
+	                .collect(toList());
+        
+        
         Map<String, String> propMap = jvmConfigReader.getPropMap();
         addJavaAgent(server, jvmConfigReader);
 
         // Try to find bootstraping jar - usually glassfish.jar
         File bootstrapJar = getJarName(server.getServerHome(), GFV3_JAR_MATCHER);
         if (bootstrapJar == null) {
-            throw new GlassFishIdeException(LOGGER.excMsg(METHOD, "noBootstrapJar"));
+            throw new PayaraIdeException(LOGGER.excMsg(METHOD, "noBootstrapJar"));
         }
 
-        // Compute classpath using properties from jvm-config element of
-        // domain.xml
+        // Compute classpath using properties from jvm-config element of domain.xml
         String classPath = computeClassPath(propMap, new File(domainAbsolutePath), bootstrapJar);
 
         StringBuilder javaOpts = new StringBuilder(1024);
@@ -133,7 +177,23 @@ public class ServerTasks {
         // It's important to add them before java options specified by user
         // in case users specified it themselves
         if (mode.equals(DEBUG)) {
-            optList.addAll(asList(propMap.get("debug-options").split("\\s+(?=-)")));
+            String debugOptions = propMap.get("debug-options");
+            
+            // Set suspend to "y" if it's "n"
+            if (suspendOnStart) {
+                Matcher debugSuspendMatcher = debugSuspendPattern.matcher(debugOptions);
+                StringBuffer buf = new StringBuffer();
+                while (debugSuspendMatcher.find()) {
+                    debugSuspendMatcher.appendReplacement(buf, 
+                        debugOptions.substring(debugSuspendMatcher.start(), debugSuspendMatcher.start(1)) + 
+                        "y" + 
+                        debugOptions.substring(debugSuspendMatcher.end(1), debugSuspendMatcher.end()));
+                }
+                
+                debugOptions = debugSuspendMatcher.appendTail(buf).toString();
+            }
+            
+            optList.addAll(asList(debugOptions.split("\\s+(?=-)")));
         }
 
         // Appending IDE specified options after the ones got from domain.xml
@@ -160,8 +220,17 @@ public class ServerTasks {
                             args.getEnvironmentVars()))
                     .get();
         } catch (InterruptedException | ExecutionException e) {
-            throw new GlassFishIdeException(LOGGER.excMsg(METHOD, "failed"), e);
+            throw new PayaraIdeException(LOGGER.excMsg(METHOD, "failed"), e);
         }
+    }
+    
+    public static Integer getDebugPort(ResultProcess process) {
+        Matcher debugPortMatcher = debugPortPattern.matcher(process.getValue().getArguments());
+        if (debugPortMatcher.find()) {
+            return Integer.parseInt(debugPortMatcher.group(1));
+        }
+
+        throw new IllegalArgumentException("Debug port not found in process args!");
     }
 
     /**
@@ -190,15 +259,15 @@ public class ServerTasks {
      * @param jvmConfigReader Contains <code>jvm-options</code> from <code>domain.xwl</code>.
      */
     private static void addJavaAgent(PayaraServer server, JvmConfigReader jvmConfigReader) {
-        List<String> optList = jvmConfigReader.getOptList();
+    	List<JvmOption> optList = jvmConfigReader.getJvmOptions();
         File serverHome = new File(server.getServerHome());
         File btrace = new File(serverHome, "lib/monitor/btrace-agent.jar");
         File flight = new File(serverHome, "lib/monitor/flashlight-agent.jar");
         if (jvmConfigReader.isMonitoringEnabled()) {
             if (btrace.exists()) {
-                optList.add("-javaagent:" + Utils.quote(btrace.getAbsolutePath()) + "=unsafe=true,noServer=true"); // NOI18N
+                optList.add(new JvmOption("-javaagent:" + Utils.quote(btrace.getAbsolutePath()) + "=unsafe=true,noServer=true")); // NOI18N
             } else if (flight.exists()) {
-                optList.add("-javaagent:" + Utils.quote(flight.getAbsolutePath()));
+                optList.add(new JvmOption("-javaagent:" + Utils.quote(flight.getAbsolutePath())));
             }
         }
     }
@@ -216,19 +285,9 @@ public class ServerTasks {
             JavaUtils.systemProperty(javaOpts, entry.getKey(), entry.getValue());
         }
     }
-
-    /**
-     * Convenient method to start glassfish in START mode.
-     * <p/>
-     *
-     * @param server GlassFish server entity.
-     * @param args Startup arguments provided by caller.
-     * @return ResultProcess returned by CommandStartDAS to give caller opportunity to monitor the start
-     * process.
-     * @throws GlassFishIdeException
-     */
-    public static ResultProcess startServer(PayaraServer server, StartupArgs args) throws GlassFishIdeException {
-        return startServer(server, args, StartMode.START);
+    
+    private static JavaVersion getJavaVersion(String javaHome) {
+        return javaVmVersion(new File(javaVmExecutableFullPath(javaHome)));
     }
 
     /**
@@ -297,42 +356,64 @@ public class ServerTasks {
      */
     private static void appendOptions(StringBuilder argumentBuf, List<String> optList, Map<String, String> varMap) {
         final String METHOD = "appendOptions";
-        HashMap<String, String> keyValueArgs = new HashMap<>();
-        LinkedList<String> keyOrder = new LinkedList<>();
+        
+        Map<String, String> keyValueArgs = new HashMap<>();
+        List<String> keyOrder = new LinkedList<>();
         String name, value;
-        // first process optList aquired from domain.xml
+        
+        // First process optList acquired from domain.xml
         for (String opt : optList) {
             // do placeholder substitution
             opt = Utils.doSub(opt.trim(), varMap);
+            
             int splitIndex = opt.indexOf('=');
+            
             // && !opt.startsWith("-agentpath:") is a temporary hack to
             // not touch already quoted -agentpath. Later we should handle it
             // in a better way.
             if (splitIndex != -1 && !opt.startsWith("-agentpath:")) {
+                
                 // key=value type of option
+                
                 name = opt.substring(0, splitIndex);
                 value = Utils.quote(opt.substring(splitIndex + 1));
                 LOGGER.log(Level.FINER, METHOD, "jvmOptVal", new Object[] { name, value });
 
+            } else if (opt.startsWith("-Xbootclasspath")) {
+
+                // -Xbootclasspath:<path> or -Xbootclasspath/p:<path> or -Xbootclasspath/a:<path>
+                
+                name = opt;
+                value = null;
+                
+                int colonIndex = opt.indexOf(':');
+                if (colonIndex != -1) {
+                    String optionName = opt.substring(0, colonIndex);
+                    String optonValue = Utils.quote(opt.substring(colonIndex + 1));
+                    
+                    name = optionName + ":" + optonValue;
+                }
             } else {
                 name = opt;
                 value = null;
                 LOGGER.log(Level.FINER, METHOD, "jvmOpt", name);
             }
+            
             if (!keyValueArgs.containsKey(name)) {
                 keyOrder.add(name);
             }
             keyValueArgs.put(name, value);
         }
 
-        // override the values that are found in the domain.xml file.
+        // Override the values that are found in the domain.xml file.
         // this is totally a copy/paste from StartTomcat...
-        final String[] PROXY_PROPS = { "http.proxyHost", // NOI18N
-                "http.proxyPort", // NOI18N
-                "http.nonProxyHosts", // NOI18N
-                "https.proxyHost", // NOI18N
-                "https.proxyPort", // NOI18N
+        String[] PROXY_PROPS = { "http.proxyHost",
+                "http.proxyPort",
+                "http.nonProxyHosts",
+                "https.proxyHost",
+                "https.proxyPort",
         };
+        
         boolean isWindows = OsUtils.isWin();
         for (String prop : PROXY_PROPS) {
             value = System.getProperty(prop);
@@ -340,19 +421,19 @@ public class ServerTasks {
                 if (isWindows && "http.nonProxyHosts".equals(prop)) {
                     // enclose in double quotes to escape the pipes separating
                     // the hosts on windows
-                    value = "\"" + value + "\""; // NOI18N
+                    value = "\"" + value + "\"";
                 }
                 keyValueArgs.put(JavaUtils.systemPropertyName(prop), value);
             }
         }
 
-        // appending key=value options to the command line argument
+        // Appending key=value options to the command line argument
         // using the same order as they came in argument - important!
         for (String key : keyOrder) {
             argumentBuf.append(' ');
             argumentBuf.append(key);
             if (keyValueArgs.get(key) != null) {
-                argumentBuf.append("="); // NOI18N
+                argumentBuf.append("=");
                 argumentBuf.append(keyValueArgs.get(key));
             }
         }
@@ -370,7 +451,8 @@ public class ServerTasks {
             glassfishArgs.append(' ');
             glassfishArgs.append(arg);
         }
-        // remove the first space
+        
+        // Remove the first space
         if (glassfishArgs.length() > 0) {
             glassfishArgs.deleteCharAt(0);
         }
