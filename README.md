@@ -1,6 +1,10 @@
 # Eclipse Payara Tools - Fork
 This is a fork of the 'fork of the Eclipse GlassFish Tools', tailored and improved to fix issues with the Eclipse console and the server launch configuration.
 
+## Eclipse Update Site
+https://andi-huber.github.io/ecosystem-eclipse-glassfish-plugin/release/
+
+
 ## Build using Eclipse
 
 1. checkout this repository in Eclipse
