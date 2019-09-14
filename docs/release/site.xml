@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site
+      associateSitesURL="associate-sites.xml">
+   <description>
+      Eclipse Payara Tools
+   </description>
+   <feature url="features/org.eclipse.payara.tools_1.0.0.201909141539.jar" id="org.eclipse.payara.tools" version="1.0.0.201909141539">
+      <category name="org.eclipse.payara.tools"/>
+   </feature>
+   <category-def name="org.eclipse.payara.tools" label="Eclipse Payara Tools">
+      <description>
+         Tools for developing applications for GlassFish.
+      </description>
+   </category-def>
+</site>
