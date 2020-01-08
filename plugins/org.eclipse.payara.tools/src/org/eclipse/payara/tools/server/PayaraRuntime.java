@@ -70,7 +70,6 @@ import org.eclipse.wst.server.core.model.RuntimeDelegate;
  * </p>
  *
  */
-@SuppressWarnings("restriction")
 public final class PayaraRuntime extends RuntimeDelegate implements IJavaRuntime {
 
     public static final String TYPE_ID = "payara.runtime";
