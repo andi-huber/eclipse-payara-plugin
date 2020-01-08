@@ -4,9 +4,7 @@
    <description>
       Eclipse Payara Tools
    </description>
-   <feature url="features/org.eclipse.payara.tools_1.0.0.201910090649.jar" id="org.eclipse.payara.tools" version="1.0.0.201910090649">
-      <category name="org.eclipse.payara.tools"/>
-   </feature>
+   <feature url="features/org.eclipse.payara.tools_1.0.1.202001081844.jar" id="org.eclipse.payara.tools" version="1.0.1.202001081844"/>
    <category-def name="org.eclipse.payara.tools" label="Eclipse Payara Tools">
       <description>
          Tools for developing applications for GlassFish.
