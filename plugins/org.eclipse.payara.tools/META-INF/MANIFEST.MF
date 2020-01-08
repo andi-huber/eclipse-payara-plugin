@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: %pluginName
 Bundle-SymbolicName: org.eclipse.payara.tools;singleton:=true
-Bundle-Version: 1.0.0.qualifier
+Bundle-Version: 1.0.1.qualifier
 Bundle-Localization: plugin
 Bundle-Activator: org.eclipse.payara.tools.PayaraToolsPlugin
 Bundle-Vendor: %providerName
@@ -34,7 +34,16 @@ Require-Bundle: org.apache.xerces,
  org.eclipse.jst.j2ee.core,
  org.eclipse.jst.server.generic.core,
  org.eclipse.sapphire.platform,
- org.eclipse.jem.util
+ org.eclipse.jem.util,
+ org.junit,
+ org.junit.platform.commons,
+ org.junit.platform.engine,
+ org.junit.platform.launcher,
+ org.junit.platform.runner,
+ org.junit.platform.suite.api,
+ org.hamcrest.core,
+ org.opentest4j,
+ org.apiguardian
 Bundle-ActivationPolicy: lazy
 Export-Package: org.eclipse.payara.tools;
   uses:="org.eclipse.debug.core,
